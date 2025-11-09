@@ -1,0 +1,18 @@
+import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
+import { clsx } from "clsx";
+export function ChatMessage({ message }) {
+    const isUser = message.role === "user";
+    const guardrails = message.guardrails;
+    const sources = message.sources ?? guardrails?.source_flags ?? [];
+    return (_jsxs("div", { className: clsx("flex gap-3 py-4", {
+            "justify-end": isUser
+        }), children: [!isUser && (_jsx("div", { className: "h-10 w-10 flex items-center justify-center rounded-full bg-brand-primary text-white font-semibold", children: "iH" })), _jsxs("div", { className: clsx("max-w-3xl rounded-2xl px-5 py-4 shadow-sm text-sm leading-relaxed", isUser
+                    ? "bg-brand-primary/10 text-brand-dark border border-brand-primary/20"
+                    : "glass-panel text-brand-dark"), children: [_jsx("p", { className: "whitespace-pre-line", children: message.text }), !isUser && guardrails && (_jsxs("div", { className: "mt-4 space-y-2 text-xs text-brand-dark/80", children: [_jsx(GuardrailBadge, { label: "Evidence confidence", value: guardrails.evidence_confidence, description: guardrails.evidence_summary }), _jsx(GuardrailBadge, { label: "Market scope", value: guardrails.market_scope, description: guardrails.tiered_market_focus }), _jsx(GuardrailBadge, { label: "Category scope", value: guardrails.category_scope }), _jsx(GuardrailBadge, { label: "Timeframe scope", value: guardrails.timeframe_scope })] })), !isUser && sources.length > 0 && (_jsx(CitationList, { sources: sources }))] }), isUser && (_jsx("div", { className: "h-10 w-10 flex items-center justify-center rounded-full bg-brand-dark text-white font-semibold", children: "You" }))] }));
+}
+function GuardrailBadge({ label, value, description }) {
+    return (_jsxs("div", { className: "flex flex-col gap-1 border border-brand-dark/10 rounded-xl px-3 py-2 bg-white/70", children: [_jsxs("div", { className: "flex items-center justify-between", children: [_jsx("span", { className: "uppercase tracking-wide text-[10px] font-semibold text-brand-dark/70", children: label }), _jsx("span", { className: "text-brand-dark font-medium", children: value })] }), description && (_jsx("p", { className: "text-[11px] text-brand-dark/70", children: description }))] }));
+}
+function CitationList({ sources }) {
+    return (_jsxs("div", { className: "mt-4 rounded-2xl border border-brand-primary/20 bg-white/85 px-4 py-3 text-xs text-brand-dark", children: [_jsxs("div", { className: "flex items-center gap-2 mb-3", children: [_jsx("div", { className: "h-6 w-6 flex items-center justify-center rounded-full bg-brand-primary/15 text-brand-primary font-semibold", children: "\u24D8" }), _jsx("span", { className: "font-semibold uppercase tracking-wide", children: "Citations" })] }), _jsx("ol", { className: "space-y-3 list-decimal list-inside", children: sources.map((source, index) => (_jsxs("li", { className: "space-y-1", children: [_jsx("a", { href: source.url, target: "_blank", rel: "noopener noreferrer", className: "text-brand-primary font-medium hover:underline", children: source.title }), _jsxs("div", { className: "text-[11px] text-brand-dark/70 space-x-2", children: [_jsx("span", { children: source.label }), source.published_at && (_jsxs("span", { children: ["Published: ", new Date(source.published_at).toLocaleDateString()] })), source.is_outdated && (_jsx("span", { className: "text-red-600 font-medium", children: "Flagged: older than 3 years" }))] }), source.description && (_jsx("p", { className: "text-[11px] text-brand-dark/80", children: source.description }))] }, `${source.url}-${index}`))) })] }));
+}

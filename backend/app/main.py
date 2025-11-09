@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.schemas import ChatRequest, ChatResponse
 from app.utils.guardrails import assess_guardrails, ensure_prompt_complete
 from app.services import stravito_client
+from app.services.azure_llm import synthesize_final_answer
 
 
 app = FastAPI(
@@ -82,7 +83,16 @@ async def chat_endpoint(request: ChatRequest) -> ChatResponse:
 
         guardrails = assess_guardrails(request, sources)
 
-        if guardrails.fabrication_warning:
+        final_text = synthesize_final_answer(
+            user_prompt=request.message,
+            stravito_answer=message_text,
+            assessment=guardrails,
+            sources=guardrails.source_flags,
+        )
+
+        if final_text:
+            message_text = final_text
+        elif guardrails.fabrication_warning:
             message_text = (
                 f"{guardrails.fabrication_warning}\n\n"
                 f"I can outline a general approach:\n{message_text}"

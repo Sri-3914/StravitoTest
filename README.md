@@ -18,8 +18,7 @@ cd /Users/sunil/StravitoTest/backend
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-export IHUB_API_KEY=...
-export IHUB_BASE_URL=https://newellbrandishub.stravito.com/app
+cp env.example .env  # populate with your secrets
 uvicorn app.main:app --reload
 ```
 
@@ -29,6 +28,7 @@ To run the backend without real iHub credentials, enable the built-in mock respo
 
 ```bash
 export IHUB_USE_MOCK=true
+export AZURE_OPENAI_ENABLED=false
 uvicorn app.main:app --reload
 ```
 
@@ -41,6 +41,7 @@ When `IHUB_USE_MOCK` is true (default is false), the backend generates determini
 - **Source vetting**: flags sources older than three years and distinguishes contextual references from empirical evidence.
 - **Market & category scope**: reiterates the focus requested and highlights the weighting across priority markets (U.S., Mexico, Brazil).
 - **Fabrication safeguard**: if no direct evidence exists, the assistant states the limitation and offers only a framework-level response.
+- **Azure OpenAI synthesis**: every Stravito response and guardrail assessment is post-processed by an Azure OpenAI deployment to deliver the final, policy-compliant answer.
 
 ## Frontend Setup
 

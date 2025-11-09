@@ -31,6 +31,25 @@ async def health_check() -> dict[str, str]:
 
 @app.post("/api/chat", response_model=ChatResponse)
 async def chat_endpoint(request: ChatRequest) -> ChatResponse:
+    def _extract_text(payload: object) -> str:
+        if isinstance(payload, dict):
+            text_candidate = payload.get("text")
+            if isinstance(text_candidate, str) and text_candidate.strip():
+                return text_candidate
+            message_candidate = payload.get("message") or payload.get("content")
+            if isinstance(message_candidate, dict):
+                return (
+                    message_candidate.get("text")
+                    or message_candidate.get("content")
+                    or ""
+                )
+            if isinstance(message_candidate, str):
+                return message_candidate
+            return ""
+        if isinstance(payload, str):
+            return payload
+        return ""
+
     prompt_status = ensure_prompt_complete(request)
     if not prompt_status.is_complete:
         message = (
@@ -54,6 +73,7 @@ async def chat_endpoint(request: ChatRequest) -> ChatResponse:
             api_response = stravito_client.create_conversation(request.message)
             conversation_id = (
                 api_response.get("conversation_id")
+                or api_response.get("conversationId")
                 or api_response.get("id")
                 or api_response.get("conversation", {}).get("id")
             )
@@ -61,25 +81,43 @@ async def chat_endpoint(request: ChatRequest) -> ChatResponse:
                 raise ValueError("conversation_id missing from API response")
 
         message_payload = api_response.get("message") or api_response
-        message_text = message_payload.get("text") or message_payload.get("message")
+        message_text = _extract_text(message_payload)
         message_id = (
             message_payload.get("message_id")
+            or message_payload.get("messageId")
             or message_payload.get("id")
             or api_response.get("message_id")
+            or api_response.get("messageId")
         )
+
+        state = (
+            (message_payload.get("state") or "")
+            if isinstance(message_payload, dict)
+            else ""
+        )
+        state = state.upper()
+
+        if conversation_id and message_id and (
+            not message_text or state != "COMPLETED"
+        ):
+            latest = stravito_client.get_message(conversation_id, message_id)
+            message_payload = latest
+            message_text = _extract_text(latest)
+            message_id = (
+                latest.get("message_id")
+                or latest.get("messageId")
+                or message_id
+            )
 
         if not message_text:
-            # Fallback: fetch the most recent message if not returned inline
-            if conversation_id and message_id:
-                latest = stravito_client.get_message(conversation_id, message_id)
-                message_text = latest.get("text") or latest.get("message", "")
-                message_payload = latest
-            else:
-                message_text = "No response text returned from iHub."
+            message_text = "No response text returned from iHub."
 
-        sources = message_payload.get("sources_extracted") or message_payload.get(
-            "sources", []
-        )
+        if isinstance(message_payload, dict):
+            sources = message_payload.get("sources_extracted") or message_payload.get(
+                "sources", []
+            )
+        else:
+            sources = []
 
         guardrails = assess_guardrails(request, sources)
 

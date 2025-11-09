@@ -20,6 +20,9 @@ class Settings:
     azure_openai_api_version: str
     enable_azure_llm: bool
 
+    stravito_poll_max_retries: int
+    stravito_poll_interval: float
+
     def __init__(self) -> None:
         missing = []
         use_mock = _to_bool(os.getenv("IHUB_USE_MOCK", "false"))
@@ -63,6 +66,10 @@ class Settings:
         self.azure_openai_api_key = azure_api_key
         self.azure_openai_deployment = azure_deployment
         self.azure_openai_api_version = azure_api_version
+        self.stravito_poll_max_retries = int(
+            os.getenv("STRAVITO_POLL_MAX_RETRIES", "60")
+        )
+        self.stravito_poll_interval = float(os.getenv("STRAVITO_POLL_INTERVAL", "2"))
 
 
 @lru_cache(maxsize=1)

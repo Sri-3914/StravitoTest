@@ -109,6 +109,13 @@ def synthesize_final_answer(
         ],
     )
 
-    message = completion.output[0].content[0].text if completion.output else ""
-    return message.strip()
+    if not completion.output:
+        return None
+
+    first_choice = completion.output[0]
+    if not first_choice.content:
+        return None
+
+    message = first_choice.content[0].text
+    return message.strip() if isinstance(message, str) else None
 

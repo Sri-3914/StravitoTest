@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 import time
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
@@ -12,8 +11,6 @@ from config import get_settings
 
 
 settings = get_settings()
-
-logger = logging.getLogger(__name__)
 
 
 def _headers() -> Dict[str, str]:
@@ -28,41 +25,42 @@ def _build_url(path: str) -> str:
     return f"{base}{path if path.startswith('/') else '/' + path}"
 
 
+def _log(msg: str) -> None:
+    print(f"[STRAVITO_CLIENT] {msg}")
+
+
 def create_conversation(query: str) -> Dict[str, Any]:
-    """Create a new conversation with the iHub Assistant."""
+    """Create a new conversation with Stravito API or mock service."""
     if settings.use_mock_api:
         return _mock_create_conversation(query)
 
     url = _build_url("/assistant/conversations")
-    logger.info("[STRAVITO_CLIENT] Creating conversation for query: %s...", query[:50])
+    _log(f"Creating conversation for query: {query[:50]}...")
     response = requests.post(url, headers=_headers(), json={"message": query}, timeout=30)
     response.raise_for_status()
     response_data = response.json()
-    logger.info(
-        "[STRAVITO_CLIENT] Conversation created: ID=%s",
-        response_data.get("conversationId")
-        or response_data.get("conversation_id")
-        or response_data.get("id"),
-    )
+    _log(f"Conversation created: ID={response_data.get('conversationId') or response_data.get('conversation_id')}")
+    if isinstance(response_data, dict):
+        response_data["sources_extracted"] = extract_sources(response_data)
     return response_data
 
 
 def extract_sources(response: Dict[str, Any]) -> List[Dict[str, str]]:
-    """Extract and format source URLs from iHub response."""
     sources: List[Dict[str, str]] = []
     for src in response.get("sources", []) or []:
         title = src.get("title") or "View Source"
         url = src.get("url") or ""
-        if url:
-            sources.append(
-                {
-                    "title": title,
-                    "url": url,
-                    "description": src.get("description", ""),
-                    "type": src.get("type", ""),
-                    "published_at": src.get("published_at"),
-                }
-            )
+        if not url:
+            continue
+        sources.append(
+            {
+                "title": title,
+                "url": url,
+                "description": src.get("description", ""),
+                "type": src.get("type", ""),
+                "published_at": src.get("published_at"),
+            }
+        )
     return sources
 
 
@@ -72,21 +70,15 @@ def get_message(
     max_retries: Optional[int] = None,
     retry_interval: Optional[float] = None,
 ) -> Dict[str, Any]:
-    """Get a specific message from a conversation, polling until completion."""
+    """Get a specific message from a conversation, polling until status is COMPLETED."""
     if settings.use_mock_api:
         return _mock_get_message(conversation_id, message_id)
 
-    url = _build_url(
-        f"/assistant/conversations/{conversation_id}/messages/{message_id}"
-    )
     max_retries = max_retries or settings.stravito_poll_max_retries
     retry_interval = retry_interval or settings.stravito_poll_interval
 
-    logger.info(
-        "[STRAVITO_CLIENT] Fetching message: conversation=%s, message=%s",
-        conversation_id,
-        message_id,
-    )
+    url = _build_url(f"/assistant/conversations/{conversation_id}/messages/{message_id}")
+    _log(f"Fetching message: conversation={conversation_id}, message={message_id}")
 
     retry_count = 0
     start_time = time.time()
@@ -99,92 +91,57 @@ def get_message(
             response_data = response.json()
             state = (response_data.get("state") or "").upper()
 
-            logger.debug(
-                "[STRAVITO_CLIENT] Poll #%s: State=%s",
-                retry_count + 1,
-                state or "UNKNOWN",
-            )
+            _log(f"Poll #{retry_count + 1}: State = {state or 'UNKNOWN'}")
 
             if state == "COMPLETED":
                 elapsed = time.time() - start_time
-                logger.info(
-                    "[STRAVITO_CLIENT] ✅ Message completed in %.1fs after %s polls",
-                    elapsed,
-                    retry_count + 1,
-                )
+                _log(f"✅ Message completed in {elapsed:.1f}s after {retry_count + 1} polls")
                 sources = response_data.get("sources", [])
-                logger.info(
-                    "[STRAVITO_CLIENT]   - Message length: %s",
-                    len(response_data.get("message", "") or ""),
-                )
-                logger.info(
-                    "[STRAVITO_CLIENT]   - Sources found: %s", len(sources)
-                )
+                message_content = response_data.get("message", "")
+                _log("Message retrieved:")
+                _log(f"  - Message length: {len(message_content or '')}")
+                _log(f"  - Sources found: {len(sources)}")
                 if sources:
+                    _log("  - Source details:")
                     for idx, source in enumerate(sources, start=1):
-                        logger.info(
-                            "[STRAVITO_CLIENT]     [%s] ID=%s Title=%s",
-                            idx,
-                            source.get("sourceId") or source.get("id"),
-                            (source.get("title") or "N/A")[:50],
+                        _log(
+                            f"    [{idx}] ID: {source.get('sourceId', 'N/A')}, "
+                            f"Title: {(source.get('title') or 'N/A')[:50]}"
                         )
                 else:
-                    logger.warning(
-                        "[STRAVITO_CLIENT]   - WARNING: No sources in completed response!"
-                    )
-                    logger.debug(
-                        "[STRAVITO_CLIENT]   - Response keys: %s",
-                        list(response_data.keys()),
-                    )
+                    _log("  - WARNING: No sources in completed response!")
+                    _log(f"  - Response keys: {list(response_data.keys())}")
+
                 response_data["sources_extracted"] = extract_sources(response_data)
                 return response_data
 
             if state in {"FAILED", "ERROR"}:
-                logger.error(
-                    "[STRAVITO_CLIENT] ❌ Message processing failed with state: %s",
-                    state,
-                )
-                logger.error(
-                    "[STRAVITO_CLIENT] Error message: %s",
-                    response_data.get("error", "Unknown error"),
-                )
+                _log(f"❌ Message processing failed with state: {state}")
+                _log(f"Error message: {response_data.get('error', 'Unknown error')}")
                 response_data["sources_extracted"] = extract_sources(response_data)
                 return response_data
 
-            if state in {"PROCESSING", "PENDING", "IN_PROGRESS", ""}:
-                if retry_count == 0:
-                    logger.info(
-                        "[STRAVITO_CLIENT] ⏳ Message is processing, polling every %ss",
-                        retry_interval,
-                    )
-                elif retry_count % 10 == 0:
-                    elapsed = time.time() - start_time
-                    logger.info(
-                        "[STRAVITO_CLIENT] ⏳ Still waiting... (%.0fs elapsed)", elapsed
-                    )
-            else:
-                logger.warning(
-                    "[STRAVITO_CLIENT] ⚠️ Unknown state: %s; treating as in-progress",
-                    state,
-                )
+            # in-progress states
+            if retry_count == 0:
+                _log(f"⏳ Message is processing, will poll every {retry_interval}s...")
+            elif retry_count % 10 == 0:
+                elapsed = time.time() - start_time
+                _log(f"⏳ Still waiting... ({elapsed:.0f}s elapsed)")
 
             retry_count += 1
             time.sleep(retry_interval)
+
         except requests.exceptions.RequestException as exc:
             retry_count += 1
-            logger.warning(
-                "[STRAVITO_CLIENT] ⚠️ Request error on poll #%s: %s",
-                retry_count,
-                exc,
-            )
+            _log(f"⚠️  Request error on poll #{retry_count}: {exc}")
             if retry_count >= max_retries:
                 raise
             time.sleep(retry_interval)
 
     elapsed = time.time() - start_time
-    logger.warning(
-        "[STRAVITO_CLIENT] ⏱️ Timeout after %.1fs (%s polls)", elapsed, max_retries
-    )
+    _log(f"⏱️  Timeout after {elapsed:.1f}s ({max_retries} polls)")
+    _log("⚠️  Message did not complete, returning last response")
+
     if response_data is None:
         response_data = {"state": "TIMEOUT", "message": "", "sources": []}
     response_data["sources_extracted"] = extract_sources(response_data)
@@ -197,11 +154,12 @@ def send_followup(conversation_id: str, query: str) -> Dict[str, Any]:
         return _mock_send_followup(conversation_id, query)
 
     url = _build_url(f"/assistant/conversations/{conversation_id}/messages")
-    response = requests.post(
-        url, headers=_headers(), json={"message": query}, timeout=30
-    )
+    response = requests.post(url, headers=_headers(), json={"message": query}, timeout=30)
     response.raise_for_status()
-    return response.json()
+    response_data = response.json()
+    if isinstance(response_data, dict):
+        response_data["sources_extracted"] = extract_sources(response_data)
+    return response_data
 
 
 def give_feedback(message_id: str, feedback: str = "success") -> Dict[str, Any]:
@@ -210,9 +168,7 @@ def give_feedback(message_id: str, feedback: str = "success") -> Dict[str, Any]:
         return {"message_id": message_id, "feedback": feedback, "status": "mocked"}
 
     url = _build_url(f"/assistant/messages/{message_id}/feedback")
-    response = requests.post(
-        url, headers=_headers(), json={"feedback": feedback}, timeout=30
-    )
+    response = requests.post(url, headers=_headers(), json={"feedback": feedback}, timeout=30)
     response.raise_for_status()
     return response.json()
 
@@ -254,35 +210,37 @@ def _mock_message_payload(conversation_id: str, query: str) -> Dict[str, Any]:
     )
     return {
         "conversation_id": conversation_id,
+        "conversationId": conversation_id,
         "message_id": message_id,
+        "messageId": message_id,
         "message": {
             "id": message_id,
             "text": text,
             "sources": sources,
             "sources_extracted": sources,
+            "state": "COMPLETED",
         },
+        "state": "COMPLETED",
+        "sources": sources,
+        "sources_extracted": sources,
     }
 
 
 def _mock_create_conversation(query: str) -> Dict[str, Any]:
     conversation_id = str(uuid4())
     response = _mock_message_payload(conversation_id, query)
-    response["conversation_id"] = conversation_id
+    _log(f"[MOCK] Conversation created: ID={conversation_id}")
     return response
 
 
 def _mock_send_followup(conversation_id: str, query: str) -> Dict[str, Any]:
+    _log(f"[MOCK] Sending follow-up to conversation={conversation_id}")
     return _mock_message_payload(conversation_id, query)
 
 
 def _mock_get_message(conversation_id: str, message_id: str) -> Dict[str, Any]:
-    sources = extract_sources({"sources": _mock_sources()})
-    return {
-        "conversation_id": conversation_id,
-        "message_id": message_id,
-        "text": "Mock follow-up message.",
-        "message": "Mock follow-up message.",
-        "sources": sources,
-        "sources_extracted": sources,
-    }
-
+    _log(f"[MOCK] Fetching message message_id={message_id}")
+    payload = _mock_message_payload(conversation_id, "mock follow up")
+    payload["message_id"] = message_id
+    payload["messageId"] = message_id
+    return payload
